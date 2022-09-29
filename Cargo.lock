@@ -2211,6 +2211,7 @@ dependencies = [
  "ordered-float",
  "quickcheck",
  "quickcheck_macros",
+ "ron",
  "serde",
 ]
 
