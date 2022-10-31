@@ -7,7 +7,7 @@
 # All our automation scripts read this, so at least we're not duplicating this
 # information across all those.
 
-PG_VERSIONS='12 13 14'
+PG_VERSIONS='12 13 14 15'
 
 CARGO_EDIT=0.11.2
 
