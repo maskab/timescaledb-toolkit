@@ -6,8 +6,8 @@ use uddsketch::{SketchHashKey, UDDSketch as UddSketchInternal};
 
 use crate::{
     accessors::{
-        AccessorApproxPercentile, AccessorApproxPercentileRank, AccessorError, AccessorMean,
-        AccessorNumVals,
+        AccessorApproxPercentile, AccessorApproxPercentileArray, AccessorApproxPercentileRank,
+        AccessorError, AccessorMean, AccessorNumVals,
     },
     aggregate_utils::in_aggregate_context,
     flatten,
@@ -26,6 +26,32 @@ pub fn uddsketch_trans(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<Internal> {
     uddsketch_trans_inner(unsafe { state.to_inner() }, size, max_error, value, fcinfo).internal()
+}
+
+pub fn uddsketch_trans_array_inner(
+    state: Option<Inner<UddSketchInternal>>,
+    size: i32,
+    max_error: f64,
+    value: Option<Vec<f64>>,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<Inner<UddSketchInternal>> {
+    unsafe {
+        in_aggregate_context(fcinfo, || {
+            let values = match value {
+                None => return state,
+                Some(value) => value,
+            };
+
+            let mut state = match state {
+                None => UddSketchInternal::new(size as u64, max_error).into(),
+                Some(state) => state,
+            };
+            for x in values {
+                state.add_value(x);
+            }
+            Some(state)
+        })
+    }
 }
 
 pub fn uddsketch_trans_inner(
@@ -73,6 +99,26 @@ pub fn percentile_agg_trans_inner(
     let default_size = PERCENTILE_AGG_DEFAULT_SIZE;
     let default_max_error = PERCENTILE_AGG_DEFAULT_ERROR;
     uddsketch_trans_inner(state, default_size as _, default_max_error, value, fcinfo)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn percentile_agg_array_trans(
+    state: Internal,
+    value: Option<Vec<f64>>,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<Internal> {
+    percentile_agg_array_trans_inner(unsafe { state.to_inner() }, value, fcinfo).internal()
+}
+
+pub fn percentile_agg_array_trans_inner(
+    state: Option<Inner<UddSketchInternal>>,
+    value: Option<Vec<f64>>,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<Inner<UddSketchInternal>> {
+    let default_size = PERCENTILE_AGG_DEFAULT_SIZE;
+    // let default_size = value?.len();
+    let default_max_error = PERCENTILE_AGG_DEFAULT_ERROR;
+    uddsketch_trans_array_inner(state, default_size as _, default_max_error, value, fcinfo)
 }
 
 // PG function for merging sketches.
@@ -506,6 +552,29 @@ extension_sql!(
     ],
 );
 
+extension_sql!(
+    "\n\
+    CREATE AGGREGATE percentile_agg_array(values integer[])\n\
+    (\n\
+        sfunc = percentile_agg_array_trans,\n\
+        stype = internal,\n\
+        finalfunc = uddsketch_final,\n\
+        combinefunc = uddsketch_combine,\n\
+        serialfunc = uddsketch_serialize,\n\
+        deserialfunc = uddsketch_deserialize,\n\
+        parallel = safe\n\
+    );\n\
+",
+    name = "percentile_agg_array",
+    requires = [
+        percentile_agg_array_trans,
+        uddsketch_final,
+        uddsketch_combine,
+        uddsketch_serialize,
+        uddsketch_deserialize
+    ],
+);
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn uddsketch_compound_trans<'a>(
     state: Internal,
@@ -580,6 +649,34 @@ pub fn uddsketch_approx_percentile<'a>(percentile: f64, sketch: UddSketch<'a>) -
         sketch.count,
         sketch.keys().zip(sketch.counts()),
     )
+}
+
+#[pg_operator(immutable, parallel_safe)]
+#[opname(->)]
+pub fn arrow_uddsketch_approx_percentile_array<'a>(
+    sketch: UddSketch<'a>,
+    percentiles: Vec<f64>,
+) -> Vec<f64> {
+    uddsketch_approx_percentile_array(percentiles, sketch)
+}
+
+// Approximate the value at the given approx_percentile (0.0-1.0) for each entry in an array
+#[pg_extern(immutable, parallel_safe, name = "approx_percentile_array")]
+pub fn uddsketch_approx_percentile_array<'a>(
+    percentiles: Vec<f64>,
+    sketch: UddSketch<'a>,
+) -> Vec<f64> {
+    let mut results = Vec::new();
+    for percentile in percentiles {
+        results.push(uddsketch::estimate_quantile(
+            percentile,
+            sketch.alpha,
+            uddsketch::gamma(sketch.alpha),
+            sketch.count,
+            sketch.keys().zip(sketch.counts()),
+        ))
+    }
+    results
 }
 
 #[pg_operator(immutable, parallel_safe)]

@@ -52,6 +52,19 @@ accessor! { approx_percentile(
     percentile: f64,
 ) }
 
+type PercentileArray = Vec<f64>;
+accessor! { approx_percentile_array(
+    percentiles: PercentileArray,
+) }
+
+// flat_serialize_macro::flat_serialize! {
+//     struct PercentileArray<'a> {
+//         header: u32,
+//         len: u32,
+//         data: [f64; self.len],
+//     }
+// }
+
 accessor! { approx_percentile_rank(
     value: f64,
 ) }
