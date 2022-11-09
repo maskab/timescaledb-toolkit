@@ -6,8 +6,8 @@ use uddsketch::{SketchHashKey, UDDSketch as UddSketchInternal};
 
 use crate::{
     accessors::{
-        AccessorApproxPercentile, AccessorApproxPercentileArray, AccessorApproxPercentileRank,
-        AccessorError, AccessorMean, AccessorNumVals,
+        AccessorApproxPercentile, AccessorApproxPercentileRank, AccessorError, AccessorMean,
+        AccessorNumVals, PercentileArray,
     },
     aggregate_utils::in_aggregate_context,
     flatten,
@@ -26,32 +26,6 @@ pub fn uddsketch_trans(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<Internal> {
     uddsketch_trans_inner(unsafe { state.to_inner() }, size, max_error, value, fcinfo).internal()
-}
-
-pub fn uddsketch_trans_array_inner(
-    state: Option<Inner<UddSketchInternal>>,
-    size: i32,
-    max_error: f64,
-    value: Option<Vec<f64>>,
-    fcinfo: pg_sys::FunctionCallInfo,
-) -> Option<Inner<UddSketchInternal>> {
-    unsafe {
-        in_aggregate_context(fcinfo, || {
-            let values = match value {
-                None => return state,
-                Some(value) => value,
-            };
-
-            let mut state = match state {
-                None => UddSketchInternal::new(size as u64, max_error).into(),
-                Some(state) => state,
-            };
-            for x in values {
-                state.add_value(x);
-            }
-            Some(state)
-        })
-    }
 }
 
 pub fn uddsketch_trans_inner(
@@ -100,27 +74,6 @@ pub fn percentile_agg_trans_inner(
     let default_max_error = PERCENTILE_AGG_DEFAULT_ERROR;
     uddsketch_trans_inner(state, default_size as _, default_max_error, value, fcinfo)
 }
-
-#[pg_extern(immutable, parallel_safe)]
-pub fn percentile_agg_array_trans(
-    state: Internal,
-    value: Option<Vec<f64>>,
-    fcinfo: pg_sys::FunctionCallInfo,
-) -> Option<Internal> {
-    percentile_agg_array_trans_inner(unsafe { state.to_inner() }, value, fcinfo).internal()
-}
-
-pub fn percentile_agg_array_trans_inner(
-    state: Option<Inner<UddSketchInternal>>,
-    value: Option<Vec<f64>>,
-    fcinfo: pg_sys::FunctionCallInfo,
-) -> Option<Inner<UddSketchInternal>> {
-    let default_size = PERCENTILE_AGG_DEFAULT_SIZE;
-    // let default_size = value?.len();
-    let default_max_error = PERCENTILE_AGG_DEFAULT_ERROR;
-    uddsketch_trans_array_inner(state, default_size as _, default_max_error, value, fcinfo)
-}
-
 // PG function for merging sketches.
 #[pg_extern(immutable, parallel_safe)]
 pub fn uddsketch_combine(
@@ -552,29 +505,6 @@ extension_sql!(
     ],
 );
 
-extension_sql!(
-    "\n\
-    CREATE AGGREGATE percentile_agg_array(values integer[])\n\
-    (\n\
-        sfunc = percentile_agg_array_trans,\n\
-        stype = internal,\n\
-        finalfunc = uddsketch_final,\n\
-        combinefunc = uddsketch_combine,\n\
-        serialfunc = uddsketch_serialize,\n\
-        deserialfunc = uddsketch_deserialize,\n\
-        parallel = safe\n\
-    );\n\
-",
-    name = "percentile_agg_array",
-    requires = [
-        percentile_agg_array_trans,
-        uddsketch_final,
-        uddsketch_combine,
-        uddsketch_serialize,
-        uddsketch_deserialize
-    ],
-);
-
 #[pg_extern(immutable, parallel_safe)]
 pub fn uddsketch_compound_trans<'a>(
     state: Internal,
@@ -651,25 +581,38 @@ pub fn uddsketch_approx_percentile<'a>(percentile: f64, sketch: UddSketch<'a>) -
     )
 }
 
-#[pg_operator(immutable, parallel_safe)]
+#[pg_operator(immutable, schema = "toolkit_experimental", parallel_safe)]
 #[opname(->)]
 pub fn arrow_uddsketch_approx_percentile_array<'a>(
+    percentiles: PercentileArray<'a>,
     sketch: UddSketch<'a>,
-    percentiles: Vec<f64>,
 ) -> Vec<f64> {
-    uddsketch_approx_percentile_array(percentiles, sketch)
+    approx_percentile_slice(percentiles.percentile.as_slice(), sketch)
 }
 
 // Approximate the value at the given approx_percentile (0.0-1.0) for each entry in an array
-#[pg_extern(immutable, parallel_safe, name = "approx_percentile_array")]
+#[pg_extern(
+    immutable,
+    schema = "toolkit_experimental",
+    parallel_safe,
+    name = "approx_percentile_array"
+)]
 pub fn uddsketch_approx_percentile_array<'a>(
     percentiles: Vec<f64>,
+    sketch: UddSketch<'a>,
+) -> Vec<f64> {
+    approx_percentile_slice(&percentiles, sketch)
+}
+
+// fn approx_percentile_slice<'a>(percentiles: &Vec<f64>, sketch: UddSketch<'a>) -> Vec<f64> {
+fn approx_percentile_slice<'a, 'b>(
+    percentiles: impl IntoIterator<Item = &'b f64>,
     sketch: UddSketch<'a>,
 ) -> Vec<f64> {
     let mut results = Vec::new();
     for percentile in percentiles {
         results.push(uddsketch::estimate_quantile(
-            percentile,
+            *percentile,
             sketch.alpha,
             uddsketch::gamma(sketch.alpha),
             sketch.count,
@@ -1017,6 +960,67 @@ mod tests {
             pct_eql(test_value.unwrap(), 9.0, test_error.unwrap());
         });
     }
+    // #[pg_test]
+    // fn test_percentile_agg_array() {
+    //     Spi::execute(|client| {
+    //         client.select(
+    //             "CREATE TABLE paa_test (device INTEGER, value DOUBLE PRECISION)",
+    //             None,
+    //             None,
+    //         );
+    //         client.select("INSERT INTO paa_test SELECT dev, dev - v FROM generate_series(1,10) dev, generate_series(0, 1.0, 0.01) v", None, None);
+
+    //         let sanity = client
+    //             .select("SELECT COUNT(*) FROM paa_test", None, None)
+    //             .first()
+    //             .get_one::<i32>();
+    //         assert_eq!(Some(1010), sanity);
+
+    //         client.select(
+    //             "CREATE VIEW uddsketch_test AS \
+    //             SELECT uddsketch(200, 0.001, value) as approx \
+    //             FROM paa_test ",
+    //             None,
+    //             None,
+    //         );
+
+    //         client.select(
+    //             "CREATE VIEW percentile_agg AS \
+    //             SELECT percentile_agg(value) as approx \
+    //             FROM paa_test",
+    //             None,
+    //             None,
+    //         );
+
+    //         let (value, error) = client
+    //             .select(
+    //                 "SELECT \
+    //                 toolkit_experimental.approx_percentile_array([0.9,0.5,0.1], approx), \
+    //                 error(approx) \
+    //                 FROM uddsketch_test",
+    //                 None,
+    //                 None,
+    //             )
+    //             .first()
+    //             .get_two::<f64, f64>();
+
+    //         let (test_value, test_error) = client
+    //             .select(
+    //                 "SELECT \
+    //                 toolkit_experimental.approx_percentile_array([0.9,0.5,0.1], approx), \
+    //                 error(approx) \
+    //                 FROM percentile_agg",
+    //                 None,
+    //                 None,
+    //             )
+    //             .first()
+    //             .get_two::<f64, f64>();
+
+    //         apx_eql(test_value.unwrap(), value.unwrap(), 0.0001);
+    //         apx_eql(test_error.unwrap(), error.unwrap(), 0.000001);
+    //         pct_eql(test_value.unwrap(), 9.0, test_error.unwrap());
+    //     });
+    // }
 
     #[pg_test]
     fn uddsketch_io_test() {

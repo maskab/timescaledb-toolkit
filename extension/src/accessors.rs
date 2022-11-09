@@ -52,19 +52,6 @@ accessor! { approx_percentile(
     percentile: f64,
 ) }
 
-type PercentileArray = Vec<f64>;
-accessor! { approx_percentile_array(
-    percentiles: PercentileArray,
-) }
-
-// flat_serialize_macro::flat_serialize! {
-//     struct PercentileArray<'a> {
-//         header: u32,
-//         len: u32,
-//         data: [f64; self.len],
-//     }
-// }
-
 accessor! { approx_percentile_rank(
     value: f64,
 ) }
@@ -555,6 +542,35 @@ pub mod toolkit_experimental {
                     len: unit.len().try_into().unwrap(),
                     bytes: unit.as_bytes().into(),
                 }
+            }
+        }
+    }
+}
+
+pg_type! {
+    #[derive(Debug)]
+    struct PercentileArray<'input> {
+    len: u64,
+    percentile: [f64; self.len],
+    }
+}
+
+ron_inout_funcs!(PercentileArray);
+
+//calling accessor with array of floats
+// select percentile_agg(...) -> percentiles([0.1, 0.25, .05]) from ...;
+#[pg_extern(
+    immutable,
+    parallel_safe,
+    schema = "toolkit_experimental",
+    name = "percentiles"
+)]
+pub fn accessor_percentiles(unit: Vec<f64>) -> PercentileArray<'static> {
+    unsafe {
+        flatten! {
+            PercentileArray{
+                len: unit.len().try_into().unwrap(),
+                percentile: unit.into(),
             }
         }
     }
