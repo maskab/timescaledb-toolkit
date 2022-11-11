@@ -19,7 +19,7 @@ pub mod toolkit_experimental {
         #[derive(Serialize, Deserialize, Debug, Copy)]
         enum VolKind {
             unused_but_required_by_flat_serialize: u64,
-            Missing: 1 { a: f64, b: f64},
+            Missing: 1 {},
             Transaction: 2 { vol: f64, vwap: f64 },
         }
     }
@@ -46,10 +46,7 @@ pub mod toolkit_experimental {
             volume: Option<f64>,
         ) -> Self {
             let volume = match volume {
-                None => VolKind::Missing {
-                    a: f64::INFINITY,
-                    b: f64::NEG_INFINITY,
-                },
+                None => VolKind::Missing {},
                 Some(volume) => {
                     let typical = (high + low + close) / 3.0;
                     VolKind::Transaction {
@@ -97,10 +94,7 @@ pub mod toolkit_experimental {
                     vwap: vwap + volume * price,
                 };
             } else {
-                self.volume = VolKind::Missing {
-                    a: f64::INFINITY,
-                    b: f64::NEG_INFINITY,
-                };
+                self.volume = VolKind::Missing {};
             };
         }
 
@@ -141,10 +135,7 @@ pub mod toolkit_experimental {
                     vwap: vwap1 + vwap2,
                 };
             } else {
-                self.volume = VolKind::Missing {
-                    a: f64::INFINITY,
-                    b: f64::NEG_INFINITY,
-                };
+                self.volume = VolKind::Missing {};
             };
         }
 
@@ -183,7 +174,7 @@ pub mod toolkit_experimental {
         pub fn volume(&self) -> Option<f64> {
             match self.volume {
                 VolKind::Transaction { vol, .. } => Some(vol),
-                VolKind::Missing { .. } => None,
+                VolKind::Missing {} => None,
             }
         }
 
@@ -196,7 +187,7 @@ pub mod toolkit_experimental {
                         None
                     }
                 }
-                VolKind::Missing { .. } => None,
+                VolKind::Missing {} => None,
             }
         }
     }
@@ -523,17 +514,6 @@ mod tests {
         Spi::execute(|client| {
             client.select("SET timezone TO 'UTC'", None, None);
             client.select(
-                r#"
- SET parallel_setup_cost = 0;
- SET parallel_tuple_cost = 0;
- SET min_parallel_table_scan_size = 0;
- SET max_parallel_workers_per_gather = 4;
- SET parallel_leader_participation = off;
- SET enable_indexonlyscan = off;"#,
-                None,
-                None,
-            );
-            client.select(
                 "CREATE TABLE test(ts TIMESTAMPTZ, price DOUBLE PRECISION)",
                 None,
                 None,
@@ -556,7 +536,7 @@ mod tests {
                             high:(ts:\"2022-08-01 00:00:00+00\",val:0),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:0),\
                             close:(ts:\"2022-08-01 00:00:00+00\",val:0),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             assert_eq!(expected, output.unwrap());
         });
@@ -614,17 +594,6 @@ mod tests {
     fn ohlc_accessors() {
         Spi::execute(|client| {
             client.select("SET timezone TO 'UTC'", None, None);
-            client.select(
-                r#"
- SET parallel_setup_cost = 0;
- SET parallel_tuple_cost = 0;
- SET min_parallel_table_scan_size = 0;
- SET max_parallel_workers_per_gather = 4;
- SET parallel_leader_participation = off;
- SET enable_indexonlyscan = off;"#,
-                None,
-                None,
-            );
             client.select("CREATE TABLE test(ts TIMESTAMPTZ, price FLOAT)", None, None);
             client.select(
                 r#"INSERT INTO test VALUES
@@ -755,7 +724,7 @@ mod tests {
                             high:(ts:\"{}\",val:1),\
                             low:(ts:\"{}\",val:1),\
                             close:(ts:\"{}\",val:1),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )",
                     extreme_time, extreme_time, extreme_time, extreme_time
                 );
@@ -774,7 +743,7 @@ mod tests {
                             high:(ts:\"2022-08-01 00:00:00+00\",val:{}),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:{}),\
                             close:(ts:\"2022-08-01 00:00:00+00\",val:{}),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )",
                     extreme_price, extreme_price, extreme_price, extreme_price
                 );
@@ -897,7 +866,7 @@ mod tests {
                             high:(ts:\"2022-08-01 00:00:00+00\",val:1),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:1),\
                             close:(ts:\"2022-08-01 00:00:00+00\",val:1),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
 
             let output = select_one!(
@@ -976,7 +945,7 @@ mod tests {
                             high:(ts:\"2022-08-01 00:00:00+00\",val:0),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:0),\
                             close:(ts:\"2022-08-01 23:59:59+00\",val:0),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             let (_, output) = select_two!(client, stmt, &str, &str);
             assert_eq!(expected, output.unwrap());
@@ -1041,7 +1010,7 @@ mod tests {
                             high:(ts:\"2022-08-01 23:59:59+00\",val:5),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:1),\
                             close:(ts:\"2022-08-01 23:59:59+00\",val:5),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             let (_, output) = select_two!(client, stmt, &str, &str);
             assert_eq!(expected, output.unwrap());
@@ -1106,7 +1075,7 @@ mod tests {
                             high:(ts:\"2022-08-01 00:00:00+00\",val:5),\
                             low:(ts:\"2022-08-01 23:59:59+00\",val:1),\
                             close:(ts:\"2022-08-01 23:59:59+00\",val:1),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             let (_, output) = select_two!(client, stmt, &str, &str);
             assert_eq!(expected, output.unwrap());
@@ -1177,7 +1146,7 @@ mod tests {
                             high:(ts:\"2022-08-01 12:00:00+00\",val:12),\
                             low:(ts:\"2022-08-01 10:00:00+00\",val:1),\
                             close:(ts:\"2022-08-01 22:00:00+00\",val:8),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             let (_, output) = select_two!(client, stmt, &str, &str);
             assert_eq!(expected, output.unwrap());
@@ -1259,7 +1228,7 @@ mod tests {
                             high:(ts:\"2022-08-02 23:59:59+00\",val:8),\
                             low:(ts:\"2022-08-01 00:00:00+00\",val:0),\
                             close:(ts:\"2022-08-02 23:59:59+00\",val:8),\
-                            volume:Missing(a:inf,b:-inf)\
+                            volume:Missing()\
                             )";
             let (_, output) = select_two!(client, stmt, &str, &str);
             assert_eq!(expected, output.unwrap());
