@@ -1306,4 +1306,17 @@ mod tests {
             assert_eq!(expected, output.unwrap());
         });
     }
+
+    #[pg_test]
+    fn candlestick_combine_test() {
+        let a = Candlestick::new(1, 1.0, 1.0, 1.0, 1.0, None);
+        let b = Candlestick::new(2, 2.0, 2.0, 2.0, 2.0, None);
+        let ab = candlestick_combine_inner(Some(a.into()), Some(b.into()), std::ptr::null_mut());
+        if let Some(combined) = ab {
+            let cs = *combined;
+            let expected = "Candlestick(CandlestickData { header: 320, version: 1, padding: [0, 0, 0], open: TSPoint { ts: 1, val: 1.0 }, high: TSPoint { ts: 2, val: 2.0 }, low: TSPoint { ts: 1, val: 1.0 }, close: TSPoint { ts: 2, val: 2.0 }, volume: Missing }, None)";
+            let observed = format!("{:?}", cs);
+            assert_eq!(expected, observed);
+        }
+    }
 }
