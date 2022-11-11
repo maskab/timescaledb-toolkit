@@ -99,7 +99,9 @@ pub mod toolkit_experimental {
         }
 
         pub fn combine(&mut self, candlestick: &Candlestick) {
-            if candlestick.open.ts < self.open.ts {
+            if candlestick.open.ts == self.open.ts && candlestick.open.val < self.open.val {
+                self.open = candlestick.open;
+            } else if candlestick.open.ts < self.open.ts {
                 self.open = candlestick.open;
             }
 
@@ -111,7 +113,9 @@ pub mod toolkit_experimental {
                 self.low = candlestick.low;
             }
 
-            if candlestick.close.ts > self.close.ts {
+            if candlestick.close.ts == self.close.ts && candlestick.close.val < self.close.val {
+                self.close = candlestick.close;
+            } else if candlestick.close.ts > self.close.ts {
                 self.close = candlestick.close;
             }
 
