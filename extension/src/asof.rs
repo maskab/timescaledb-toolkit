@@ -39,7 +39,7 @@ fn asof(t1:String,
    results.sort_by(|a, b| b.0.cmp(&a.0));
     let mut results2 = Vec::new();
     let mut curr_val = None;
-
+// TODO: build a fast locf logic. The current implementation is based on looping.
     for mut res in results{
         if res.1 == None{
             if curr_val == None{}else{
