@@ -36,19 +36,21 @@ fn asof(t1:String,
             .for_each(|tuple| results.push(tuple));
         Ok(Some(()))
     });
-   results.sort_by(|a, b| b.0.cmp(&a.0));
+   results.sort_by(|a, b| a.0.cmp(&b.0));
     let mut results2 = Vec::new();
     let mut curr_val = None;
 // TODO: build a fast locf logic. The current implementation is based on looping.
     for mut res in results{
         if res.1 == None{
-            if curr_val == None{}else{
+            if curr_val == None{
+            }else{
                 res.1 = curr_val;
             }
+            results2.push((res.0,res.1));
         }else{
             curr_val = res.1;
         }
-        results2.push((res.0,res.1));
+
     }
 
     TableIterator::new(results2.into_iter())
